@@ -160,8 +160,10 @@ function getWeekDates(){
   const today=new Date();
   const day=today.getDay();
   const mon=new Date(today);
+  // 月曜ズレ修正: 日曜=0のとき翌月曜へ、それ以外は今週月曜へ
   if(day===0) mon.setDate(today.getDate()+1);
   else mon.setDate(today.getDate()-(day-1));
+  mon.setHours(0,0,0,0);
   const weeks=[];
   for(let w=0;w<2;w++){
     const week=[];
@@ -192,7 +194,6 @@ function isUsedOnDate(key,dk,excludeCell){
 function isWeekFullyUsed(key,week){
   return week.every(dt=>{
     const dk=dateKey(dt);
-    // 過去の日付は「済み」扱い
     if(dk<todayKey) return true;
     return isUsedOnDate(key,dk,null);
   });
@@ -204,9 +205,7 @@ function loadFromURL(){
   try{assignments=JSON.parse(decodeURIComponent(atob(d)));}catch(e){}
 }
 
-function printPDF(){
-  window.print();
-}
+function printPDF(){ window.print(); }
 
 function downloadForShare(){
   const data = JSON.stringify(assignments);
@@ -220,21 +219,6 @@ function downloadForShare(){
   a.download = '配置表.html';
   a.click();
   document.getElementById('share-box').style.display='block';
-}
-
-function shareURL(){
-  const encoded=btoa(encodeURIComponent(JSON.stringify(assignments)));
-  const url=location.href.split('?')[0]+'?d='+encoded;
-  document.getElementById('share-box').style.display='block';
-  document.getElementById('share-url').value=url;
-}
-
-function copyURL(){
-  const input=document.getElementById('share-url');
-  input.select();
-  document.execCommand('copy');
-  event.target.textContent='コピー済！';
-  setTimeout(()=>event.target.textContent='コピー',2000);
 }
 
 function renderLegend(){
