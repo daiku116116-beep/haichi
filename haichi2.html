@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>現場配置表</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; font-size: 12px; background: #f5f5f0; }
+#app { padding: 8px; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.title { font-size: 15px; font-weight: 500; }
+.btn-group { display: flex; gap: 6px; }
+.reset-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid #aaa; background: #fff; cursor: pointer; }
+.share-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid #3C3489; background: #3C3489; color: #fff; cursor: pointer; }
+.hint { font-size: 11px; color: #e06000; margin-bottom: 6px; min-height: 16px; font-weight: 500; }
+.share-box { display: none; margin-bottom: 6px; padding: 6px; background: #EEEDFE; border-radius: 8px; font-size: 11px; }
+.share-box-title { color: #3C3489; font-weight: 500; margin-bottom: 4px; }
+.share-row { display: flex; gap: 4px; }
+.share-input { flex: 1; font-size: 10px; padding: 4px; border-radius: 6px; border: 0.5px solid #aaa; }
+.copy-btn { font-size: 11px; padding: 4px 8px; border-radius: 6px; background: #3C3489; color: #fff; border: none; cursor: pointer; }
+.legend { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.legend-item { display: flex; align-items: center; gap: 3px; font-size: 10px; color: #555; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.week-label { font-size: 12px; font-weight: 500; color: #555; margin-bottom: 4px; }
+.table-wrap { overflow-x: auto; margin-bottom: 4px; }
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+th { border: 0.5px solid #ccc; background: #f0f0ec; font-size: 10px; padding: 2px 1px; text-align: center; font-weight: 500; color: #555; }
+tfoot th { border-top: 1px solid #bbb; }
+td { border: 0.5px solid #ddd; padding: 2px; text-align: left; vertical-align: top; }
+td.genba { font-weight: 500; background: #f8f8f5; width: 62px; padding: 2px 2px 2px 4px; font-size: 9px; }
+td.cell { width: 36px; }
+.slot { display: flex; align-items: center; min-height: 22px; border-bottom: 0.5px solid #eee; padding: 1px; }
+.slot:last-child { border-bottom: none; }
+.chip-wrap { display: flex; align-items: center; width: 100%; }
+.circle { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; flex-shrink: 0; cursor: pointer; }
+.chip-del { width: 15px; height: 15px; border-radius: 50%; font-size: 11px; font-weight: bold; cursor: pointer; color: #fff; opacity: 0.6; background: rgba(0,0,0,0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: auto; }
+.slot-empty { width: 100%; height: 20px; border-radius: 5px; background: #ececec; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #bbb; font-size: 14px; }
+.slot-empty.target { background: #c8f0dc; color: #1D9E75; border: 1.5px dashed #1D9E75; }
+.slot-empty.blocked { background: #f5e0e0; color: #ccc; cursor: not-allowed; }
+.slot-empty.past { background: #f0f0ee; color: #ddd; cursor: not-allowed; }
+.staff-area { margin-bottom: 16px; }
+.staff-section { margin-bottom: 6px; }
+.staff-title { font-size: 11px; color: #666; margin-bottom: 3px; font-weight: 500; }
+.pool { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; background: #f8f8f5; border-radius: 8px; border: 0.5px solid #ddd; min-height: 36px; }
+.pool-person { display: flex; align-items: center; gap: 2px; cursor: pointer; padding: 2px 4px; border-radius: 8px; }
+.pool-person.selected { background: rgba(0,0,0,0.08); outline: 2px solid #555; }
+.pool-person.week-done { cursor: default; }
+.pcircle { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="header">
+    <span class="title">現場配置表</span>
+    <div class="btn-group">
+      <button class="share-btn" id="share-btn" onclick="shareURL()">共有URL</button>
+      <button class="reset-btn" id="reset-btn" onclick="doReset()">リセット</button>
+    </div>
+  </div>
+  <div class="share-box" id="share-box">
+    <div class="share-box-title">URLをコピーしてLINEで送ってください</div>
+    <div class="share-row">
+      <input class="share-input" id="share-url" readonly />
+      <button class="copy-btn" onclick="copyURL()">コピー</button>
+    </div>
+  </div>
+  <div class="hint" id="hint">下から名前をタップ → 空き枠をタップで配置</div>
+  <div class="legend" id="legend"></div>
+  <div id="tables"></div>
+  <div id="pools" style="display:none;"></div>
+</div>
+<script>
+const GENBA = ['セイミ鹿島','レイズネクスト','朝日航洋','大洗ごみ処理場','ヤクルト二軍','TTC','置き場加工','その他','休み','有給'];
+const NO_SHOCHO = ['置き場加工','その他','休み','有給'];
+
+const ALL_STAFF = [
+  {sei:'新堀',mei:'好広',cat:'shokucho'},
+  {sei:'小沼',mei:'聖児',cat:'shokucho'},
+  {sei:'杉山',mei:'貞幸',cat:'shokucho'},
+  {sei:'田中',mei:'大樹',cat:'shokucho'},
+  {sei:'新堀',mei:'広清',cat:'shokucho'},
+  {sei:'飯田',mei:'啓次郎',cat:'shokucho'},
+  {sei:'菅澤',mei:'利男',cat:'shokunin'},
+  {sei:'藤岡',mei:'一美',cat:'shokunin'},
+  {sei:'杉山',mei:'昇',cat:'shokunin'},
+  {sei:'新堀',mei:'幹太',cat:'shokunin'},
+  {sei:'中村',mei:'信男',cat:'nakamura'},
+  {sei:'中村',mei:'竜治',cat:'nakamura'},
+  {sei:'マヘンドラ',mei:'',cat:'tokutei'},
+  {sei:'アグス',mei:'',cat:'tokutei'},
+  {sei:'ダンディ',mei:'',cat:'jishusei'},
+  {sei:'スアル',mei:'',cat:'jishusei'},
+  {sei:'ペブリ',mei:'',cat:'jishusei',unusable:true},
+];
+
+const CAT_LABELS = {shokucho:'職長',shokunin:'職人',nakamura:'中村班',tokutei:'特定技能',jishusei:'実習生'};
+const CAT_ORDER = ['shokucho','shokunin','tokutei','jishusei','nakamura'];
+const PERSONAL_COLORS = {
+  '新堀好広': {bg:'#B91C1C',text:'#fff'},
+  '小沼聖児': {bg:'#0369A1',text:'#fff'},
+  '杉山貞幸': {bg:'#15803D',text:'#fff'},
+  '田中大樹': {bg:'#7C3AED',text:'#fff'},
+  '新堀広清': {bg:'#B45309',text:'#fff'},
+  '飯田啓次郎':{bg:'#0F766E',text:'#fff'},
+  '菅澤利男': {bg:'#C2610A',text:'#fff'},
+  '藤岡一美': {bg:'#9D174D',text:'#fff'},
+  '杉山昇':   {bg:'#1D4ED8',text:'#fff'},
+  '新堀幹太': {bg:'#065F46',text:'#fff'},
+};
+
+const CAT_COLORS = {
+  shokucho:{bg:'#B91C1C',text:'#fff'},
+  shokunin:{bg:'#C2610A',text:'#fff'},
+  nakamura:{bg:'#185FA5',text:'#fff'},
+  tokutei: {bg:'#854F0B',text:'#fff'},
+  jishusei:{bg:'#72243E',text:'#fff'},
+};
+const DAY_LABELS = ['月','火','水','木','金','土'];
+
+function buildLabels() {
+  const cnt={};
+  ALL_STAFF.forEach(p=>{ if(p.mei) cnt[p.sei]=(cnt[p.sei]||0)+1; });
+  const L={};
+  ALL_STAFF.forEach(p=>{
+    const k=p.sei+p.mei;
+    if(!p.mei) L[k]=p.sei.slice(0,2);
+    else if(cnt[p.sei]>1) L[k]=p.mei.slice(0,2);
+    else L[k]=p.sei;
+  });
+  return L;
+}
+const LABELS=buildLabels();
+
+function nameKey(p){return p.sei+p.mei;}
+function personByKey(k){return ALL_STAFF.find(p=>nameKey(p)===k);}
+function categoryOf(k){const p=personByKey(k);return p?p.cat:'shokunin';}
+function labelOf(k){return LABELS[k]||k;}
+function colorOf(k){
+  const p=personByKey(k);
+  if(p&&(p.cat==='shokucho'||p.cat==='shokunin')){
+    const full=p.sei+p.mei;
+    if(PERSONAL_COLORS[full]) return PERSONAL_COLORS[full];
+  }
+  const cat=categoryOf(k);
+  return CAT_COLORS[cat]||{bg:'#888',text:'#fff'};
+}
+
+let assignments={};
+let selected=null;
+const isReadOnly=!!new URLSearchParams(location.search).get('d');
+
+function getWeekDates(){
+  const today=new Date();
+  const day=today.getDay();
+  const mon=new Date(today);
+  if(day===0) mon.setDate(today.getDate()+1);
+  else mon.setDate(today.getDate()-(day-1));
+  const weeks=[];
+  for(let w=0;w<2;w++){
+    const week=[];
+    for(let d=0;d<6;d++){
+      const dt=new Date(mon);
+      dt.setDate(mon.getDate()+w*7+d);
+      week.push(dt);
+    }
+    weeks.push(week);
+  }
+  return weeks;
+}
+const weeks=getWeekDates();
+const allDates=weeks.flat().map(d=>dateKey(d));
+const todayKey=dateKey(new Date());
+
+function dateKey(d){return d.toISOString().slice(0,10);}
+function cellKey(g,dk){return g+'||'+dk;}
+
+function isUsedOnDate(key,dk,excludeCell){
+  return Object.keys(assignments).some(ck=>{
+    if(ck===excludeCell) return false;
+    if(!ck.endsWith('||'+dk)) return false;
+    return (assignments[ck]||[]).includes(key);
+  });
+}
+
+function isWeekFullyUsed(key,week){
+  return week.every(dt=>{
+    const dk=dateKey(dt);
+    // 過去の日付は「済み」扱い
+    if(dk<todayKey) return true;
+    return isUsedOnDate(key,dk,null);
+  });
+}
+
+function loadFromURL(){
+  const d=new URLSearchParams(location.search).get('d');
+  if(!d) return;
+  try{assignments=JSON.parse(decodeURIComponent(atob(d)));}catch(e){}
+}
+
+function shareURL(){
+  const encoded=btoa(encodeURIComponent(JSON.stringify(assignments)));
+  const url=location.href.split('?')[0]+'?d='+encoded;
+  document.getElementById('share-box').style.display='block';
+  document.getElementById('share-url').value=url;
+}
+
+function copyURL(){
+  const input=document.getElementById('share-url');
+  input.select();
+  document.execCommand('copy');
+  event.target.textContent='コピー済！';
+  setTimeout(()=>event.target.textContent='コピー',2000);
+}
+
+function renderLegend(){
+  document.getElementById('legend').innerHTML=CAT_ORDER.map(cat=>{
+    const c=CAT_COLORS[cat];
+    return `<div class="legend-item"><div class="legend-dot" style="background:${c.bg}"></div>${CAT_LABELS[cat]}</div>`;
+  }).join('');
+}
+
+function renderHint(){
+  const hint=document.getElementById('hint');
+  if(isReadOnly){
+    hint.style.color='#888';
+    hint.textContent='閲覧モード';
+    document.getElementById('share-btn').style.display='none';
+    document.getElementById('reset-btn').style.display='none';
+    return;
+  }
+  if(selected){
+    const p=personByKey(selected.key);
+    hint.textContent=`「${p?p.sei+p.mei:''}」選択中 → 緑の枠をタップで配置`;
+  } else {
+    hint.textContent='下から名前をタップ → 空き枠をタップで配置';
+  }
+}
+
+function buildShochoRow(g,isSelecting){
+  const hasShocho=!NO_SHOCHO.includes(g);
+  if(!hasShocho) return '';
+  const shochoKey='SHOCHO||'+g;
+  const shochoNames=assignments[shochoKey]||[];
+  const isTarget=isSelecting&&selected&&categoryOf(selected.key)==='shokucho';
+  const isBlocked=isSelecting&&selected&&categoryOf(selected.key)!=='shokucho';
+  let inner=shochoNames.map(key=>{
+    const sc=colorOf(key);
+    return `<span class="circle" style="background:${sc.bg};color:${sc.text};margin:1px;" ${isReadOnly?'':'onclick="onChipClick(event,\''+key+'\',\''+shochoKey+'\')"'}>${labelOf(key)}</span>${isReadOnly?'':'<span class="chip-del" onclick="onDel(event,\''+key+'\',\''+shochoKey+'\')">×</span>'}`;
+  }).join('');
+  if(!isReadOnly){
+    if(isTarget) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#c8f0dc;color:#1D9E75;border:1.5px dashed #1D9E75;font-size:13px;cursor:pointer;" onclick="onShochoClick(event,'${g}')">+</span>`;
+    else if(!isSelecting) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#ececec;color:#bbb;font-size:13px;">+</span>`;
+    else if(isBlocked) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#f5e0e0;color:#ccc;font-size:13px;">+</span>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:2px;padding:2px 0;border-top:0.5px solid #ddd;margin-top:2px;flex-wrap:wrap;"><span style="font-size:8px;color:#888;white-space:nowrap;">職長▶</span>${inner}</div>`;
+}
+
+function buildPoolsHTML(week){
+  let html='<div class="staff-area">';
+  CAT_ORDER.forEach(cat=>{
+    const persons=ALL_STAFF.filter(p=>p.cat===cat);
+    const c=CAT_COLORS[cat];
+    html+=`<div class="staff-section"><div class="staff-title">${CAT_LABELS[cat]}</div><div class="pool">`;
+    persons.forEach(p=>{
+      const key=nameKey(p);
+      const isSel=!isReadOnly&&selected&&selected.key===key&&selected.fromCell===null;
+      const done=isWeekFullyUsed(key,week);
+      const lbl=labelOf(key);
+      const fullName=p.mei?p.sei+' '+p.mei:p.sei;
+      const unusable=p.unusable||false;
+      const pc=colorOf(key);
+      html+=`<div class="pool-person${isSel?' selected':''}${done?' week-done':''}" onclick="${done||isReadOnly?'':("onPoolClick('"+key+"')")}" title="${fullName}">
+        <span class="pcircle" style="background:${done?'#ccc':pc.bg};color:${done?'#888':pc.text};">${lbl}</span>
+        <span style="font-size:9px;color:${done?'#bbb':'#555'};margin-left:2px;display:flex;flex-direction:column;line-height:1.4;${done?'text-decoration:line-through;':''}">${fullName}${unusable&&!done?'<span style="font-size:8px;color:#c00;">(つかえない)</span>':''}</span>
+      </div>`;
+    });
+    html+='</div></div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function renderTables(){
+  const isSelecting=!!selected;
+  let html='';
+  weeks.forEach((week,wi)=>{
+    const label=wi===0?'今週':'来週';
+    const range=`${week[0].getMonth()+1}/${week[0].getDate()} 〜 ${week[5].getMonth()+1}/${week[5].getDate()}`;
+    html+=`<div class="week-label">${label}（${range}）</div><div class="table-wrap"><table>`;
+
+    const makeHeaderRow=()=>{
+      let r=`<tr><th style="text-align:left;padding-left:4px;width:62px;">現場</th>`;
+      week.forEach((dt,di)=>{
+        const past=dateKey(dt)<todayKey;
+        r+=`<th style="width:36px;${past?'color:#bbb;background:#f5f5f3;':''}">${dt.getMonth()+1}/${dt.getDate()}<br>${DAY_LABELS[di]}</th>`;
+      });
+      return r+'</tr>';
+    };
+
+    html+=`<thead>${makeHeaderRow()}</thead><tbody>`;
+
+    GENBA.forEach(g=>{
+      html+=`<tr><td class="genba"><div>${g}</div>${buildShochoRow(g,isSelecting)}</td>`;
+      week.forEach(dt=>{
+        const dk=dateKey(dt);
+        const ck=cellKey(g,dk);
+        const keys=assignments[ck]||[];
+        const past=dk<todayKey;
+        const blocked=isSelecting&&selected&&isUsedOnDate(selected.key,dk,selected.fromCell);
+        let cellHTML=keys.map(key=>{
+          const c=past?{bg:'#ccc',text:'#fff'}:colorOf(key);
+          return `<div class="slot"><div class="chip-wrap">
+            <span class="circle" style="background:${c.bg};color:${c.text}" ${past||isReadOnly?'':'onclick="onChipClick(event,\''+key+'\',\''+ck+'\')"'}>${labelOf(key)}</span>
+            ${(!past&&!isReadOnly)?'<span class="chip-del" onclick="onDel(event,\''+key+'\',\''+ck+'\')">×</span>':''}
+          </div></div>`;
+        }).join('');
+        let eCls=past?'slot-empty past':'slot-empty';
+        let eOc='';
+        if(!past&&!isReadOnly&&isSelecting){
+          eCls=blocked?'slot-empty blocked':'slot-empty target';
+          if(!blocked) eOc=`onEmptyClick(event,'${g}','${dk}')`;
+        }
+        cellHTML+=`<div class="slot"><div class="${eCls}" onclick="${eOc}">+</div></div>`;
+        html+=`<td class="cell" style="${past?'background:#f5f5f3;':''}">${cellHTML}</td>`;
+      });
+      html+='</tr>';
+    });
+
+    html+=`</tbody><tfoot>${makeHeaderRow()}</tfoot></table></div>`;
+    html+=buildPoolsHTML(week);
+  });
+  document.getElementById('tables').innerHTML=html;
+}
+
+function sortByCategory(keys){
+  return [...keys].sort((a,b)=>{
+    const ai=CAT_ORDER.indexOf(categoryOf(a)),bi=CAT_ORDER.indexOf(categoryOf(b));
+    if(ai!==bi) return ai-bi;
+    return ALL_STAFF.findIndex(p=>nameKey(p)===a)-ALL_STAFF.findIndex(p=>nameKey(p)===b);
+  });
+}
+
+function render(){renderHint();renderTables();}
+
+function onChipClick(e,key,ck){e.stopPropagation();selected={key,fromCell:ck};render();}
+
+function onPoolClick(key){
+  if(isReadOnly) return;
+  selected=(selected&&selected.key===key&&selected.fromCell===null)?null:{key,fromCell:null};
+  render();
+}
+
+function onShochoClick(e,g){
+  e.stopPropagation();
+  if(!selected||isReadOnly) return;
+  if(categoryOf(selected.key)!=='shokucho') return;
+  const{key,fromCell}=selected;
+  const ck='SHOCHO||'+g;
+  if(fromCell) assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+  if(!assignments[ck]) assignments[ck]=[];
+  if(!assignments[ck].includes(key)) assignments[ck].push(key);
+  selected=null;save();render();
+}
+
+function onEmptyClick(e,g,dk){
+  e.stopPropagation();
+  if(!selected||isReadOnly) return;
+  const{key,fromCell}=selected;
+  const ck=cellKey(g,dk);
+  if(isUsedOnDate(key,dk,fromCell)){selected=null;render();return;}
+  if(fromCell) assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+  if(!assignments[ck]) assignments[ck]=[];
+  if(!assignments[ck].includes(key)) assignments[ck].push(key);
+  assignments[ck]=sortByCategory(assignments[ck]);
+  const week=weeks.find(w=>w.some(d=>dateKey(d)===dk));
+  if(week){
+    const si=week.findIndex(d=>dateKey(d)===dk);
+    week.slice(si+1).forEach(dt=>{
+      const wdk=dateKey(dt);
+      if(isUsedOnDate(key,wdk,null)) return;
+      const wck=cellKey(g,wdk);
+      if(!assignments[wck]) assignments[wck]=[];
+      if(!assignments[wck].includes(key)) assignments[wck].push(key);
+      assignments[wck]=sortByCategory(assignments[wck]);
+    });
+  }
+  selected=null;save();render();
+}
+
+function onDel(e,key,ck){
+  e.stopPropagation();
+  assignments[ck]=(assignments[ck]||[]).filter(k=>k!==key);
+  if(selected&&selected.key===key&&selected.fromCell===ck) selected=null;
+  save();render();
+}
+
+function doReset(){
+  if(isReadOnly) return;
+  if(!confirm('配置をリセットしますか？')) return;
+  assignments={};selected=null;save();render();
+}
+
+const SAVE_KEY='haichi_assignments';
+
+function save(){
+  if(isReadOnly) return;
+  try{ localStorage.setItem(SAVE_KEY, JSON.stringify(assignments)); } catch(e){}
+}
+
+function loadLocal(){
+  if(isReadOnly) return;
+  try{
+    const d=localStorage.getItem(SAVE_KEY);
+    if(d) assignments=JSON.parse(d);
+  } catch(e){}
+}
+
+loadFromURL();
+if(!isReadOnly) loadLocal();
+renderLegend();
+render();
+</script>
+</body>
+</html>
