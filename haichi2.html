@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>現場配置表</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: sans-serif; font-size: 12px; background: #f5f5f0; }
@@ -14,8 +15,9 @@ body { font-family: sans-serif; font-size: 12px; background: #f5f5f0; }
 .reset-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid #aaa; background: #fff; cursor: pointer; }
 .share-btn { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 0.5px solid #3C3489; background: #3C3489; color: #fff; cursor: pointer; }
 .hint { font-size: 11px; color: #e06000; margin-bottom: 6px; min-height: 16px; font-weight: 500; }
-.share-box { display: none; margin-bottom: 6px; padding: 6px; background: #EEEDFE; border-radius: 8px; font-size: 11px; }
-.share-box-title { color: #3C3489; font-weight: 500; margin-bottom: 4px; }
+.sync-status { font-size: 10px; color: #16a34a; margin-bottom: 4px; }
+.sync-status.offline { color: #dc2626; }
+.sync-status.syncing { color: #ca8a04; }
 .legend { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .legend-item { display: flex; align-items: center; gap: 3px; font-size: 10px; color: #555; }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
@@ -45,7 +47,7 @@ td.cell { width: 36px; }
 .pool-person.week-done { cursor: default; }
 .pcircle { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
 @media print {
-  .btn-group, .share-box, .hint, .staff-area { display: none !important; }
+  .btn-group, .hint, .staff-area, .sync-status { display: none !important; }
   body { background: #fff !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .slot-empty { display: none !important; }
@@ -60,19 +62,21 @@ td.cell { width: 36px; }
   <div class="header">
     <span class="title">現場配置表</span>
     <div class="btn-group">
-      <button class="share-btn" id="share-btn" onclick="downloadForShare()">保存して送る</button>
       <button class="share-btn" id="pdf-btn" onclick="printPDF()" style="background:#085041;border-color:#085041;">PDF出力</button>
       <button class="reset-btn" id="reset-btn" onclick="doReset()">リセット</button>
     </div>
   </div>
-  <div class="share-box" id="share-box">
-    <div class="share-box-title">ダウンロードしてLINEで送ってください</div>
-  </div>
+  <div class="sync-status" id="syncStatus">🔄 接続中...</div>
   <div class="hint" id="hint">下から名前をタップ → 空き枠をタップで配置</div>
   <div class="legend" id="legend"></div>
   <div id="tables"></div>
 </div>
 <script>
+// ── Supabase 設定 ──────────────────────────────
+const SUPABASE_URL = 'https://jpsfhjkylbsmxjtxpppq.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_D4yV6C4dJhCT4W-kxIpW-Q_HaIQHdsC';
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 const GENBA = ['セイミ鹿島','レイズネクスト','朝日航洋','大洗ごみ処理場','ヤクルト二軍','TTC','置き場加工','その他','休み','有給'];
 const NO_SHOCHO = ['置き場加工','その他','休み','有給'];
 
@@ -119,6 +123,49 @@ const CAT_COLORS = {
 };
 const DAY_LABELS = ['月','火','水','木','金','土'];
 
+// 日本の祝日（2026年〜2027年）
+const HOLIDAYS = {
+  '2026-01-01': '元日',
+  '2026-01-12': '成人の日',
+  '2026-02-11': '建国記念の日',
+  '2026-02-23': '天皇誕生日',
+  '2026-03-20': '春分の日',
+  '2026-04-29': '昭和の日',
+  '2026-05-03': '憲法記念日',
+  '2026-05-04': 'みどりの日',
+  '2026-05-05': 'こどもの日',
+  '2026-05-06': '振替休日',
+  '2026-07-20': '海の日',
+  '2026-08-11': '山の日',
+  '2026-09-21': '敬老の日',
+  '2026-09-22': '国民の休日',
+  '2026-09-23': '秋分の日',
+  '2026-10-12': 'スポーツの日',
+  '2026-11-03': '文化の日',
+  '2026-11-23': '勤労感謝の日',
+  '2027-01-01': '元日',
+  '2027-01-11': '成人の日',
+  '2027-02-11': '建国記念の日',
+  '2027-02-23': '天皇誕生日',
+  '2027-03-21': '春分の日',
+  '2027-03-22': '振替休日',
+  '2027-04-29': '昭和の日',
+  '2027-05-03': '憲法記念日',
+  '2027-05-04': 'みどりの日',
+  '2027-05-05': 'こどもの日',
+  '2027-07-19': '海の日',
+  '2027-08-11': '山の日',
+  '2027-09-20': '敬老の日',
+  '2027-09-23': '秋分の日',
+  '2027-10-11': 'スポーツの日',
+  '2027-11-03': '文化の日',
+  '2027-11-23': '勤労感謝の日',
+};
+
+function isHoliday(d) {
+  return HOLIDAYS[dateKey(d)] !== undefined;
+}
+
 function buildLabels() {
   const cnt={};
   ALL_STAFF.forEach(p=>{ if(p.mei) cnt[p.sei]=(cnt[p.sei]||0)+1; });
@@ -146,32 +193,24 @@ function colorOf(k){
   return CAT_COLORS[categoryOf(k)]||{bg:'#888',text:'#fff'};
 }
 
-// ── 日付ユーティリティ（UTC問題修正済み）──
-// ローカル時間でYYYY-MM-DDを返す
+let assignments={};
+let selected=null;
+
 function dateKey(d){
   const y=d.getFullYear();
   const m=String(d.getMonth()+1).padStart(2,'0');
   const dd=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${dd}`;
 }
-
-// 今日のローカル日付でdateKeyを返す
 function todayDateKey(){return dateKey(new Date());}
-
-// 今日の曜日（0=日,1=月...6=土）
-function todayDow(){return new Date().getDay();}
-
-// 指定日の月曜を返す（ローカル時間基準）
 function getMonday(base){
   const d=new Date(base);
   d.setHours(0,0,0,0);
   const dow=d.getDay();
-  const diff=(dow===0)?-6:(1-dow); // 日曜なら-6、それ以外は1-dow
+  const diff=(dow===0)?-6:(1-dow);
   d.setDate(d.getDate()+diff);
   return d;
 }
-
-// 月曜から6日分（月〜土）の配列を返す
 function weekDates(monday){
   return Array.from({length:6},(_,i)=>{
     const d=new Date(monday);
@@ -179,49 +218,29 @@ function weekDates(monday){
     return d;
   });
 }
-
-// 表示する週リストを生成
-// 通常（月〜金）：今週・来週の2週
-// 土曜：今週・来週・再来週の3週
-// 日曜：表示しない（翌月曜から今週・来週の2週）
 function getWeeks(){
   const today=new Date();
   today.setHours(0,0,0,0);
-  const dow=today.getDay(); // 0=日,1=月...6=土
-
-  // 今週の月曜
+  const dow=today.getDay();
   const thisMon=getMonday(today);
-
   if(dow===6){
-    // 土曜：今週・来週・再来週の3週表示
     const w0=weekDates(thisMon);
     const mon1=new Date(thisMon); mon1.setDate(thisMon.getDate()+7);
     const w1=weekDates(mon1);
     const mon2=new Date(thisMon); mon2.setDate(thisMon.getDate()+14);
     const w2=weekDates(mon2);
-    return [
-      {label:'今週', dates:w0},
-      {label:'来週', dates:w1},
-      {label:'再来週', dates:w2},
-    ];
+    return [{label:'今週',dates:w0},{label:'来週',dates:w1},{label:'再来週',dates:w2}];
   } else {
-    // 月〜金・日曜：今週・来週の2週表示
     const w0=weekDates(thisMon);
     const mon1=new Date(thisMon); mon1.setDate(thisMon.getDate()+7);
     const w1=weekDates(mon1);
-    return [
-      {label:'今週', dates:w0},
-      {label:'来週', dates:w1},
-    ];
+    return [{label:'今週',dates:w0},{label:'来週',dates:w1}];
   }
 }
-
-let weeks=getWeeks();
+const weeks=getWeeks();
 const todayKey=todayDateKey();
 
-let assignments={};
-let selected=null;
-const isReadOnly=!!new URLSearchParams(location.search).get('d');
+function cellKey(g,dk){return g+'||'+dk;}
 
 function isUsedOnDate(key,dk,excludeCell){
   return Object.keys(assignments).some(ck=>{
@@ -239,29 +258,62 @@ function isWeekFullyUsed(key,week){
   });
 }
 
-function cellKey(g,dk){return g+'||'+dk;}
+// ── Supabase連携 ────────────────────────────
+function setStatus(text, cls) {
+  const s = document.getElementById('syncStatus');
+  s.textContent = text;
+  s.className = 'sync-status' + (cls ? ' ' + cls : '');
+}
 
-function loadFromURL(){
-  const d=new URLSearchParams(location.search).get('d');
-  if(!d) return;
-  try{assignments=JSON.parse(decodeURIComponent(atob(d)));}catch(e){}
+async function loadFromSupabase() {
+  setStatus('🔄 データ読み込み中...', 'syncing');
+  try {
+    const { data, error } = await sbClient.from('assignments').select('*');
+    if (error) { console.error(error); setStatus('⚠️ 接続エラー', 'offline'); return; }
+    assignments = {};
+    data.forEach(row => {
+      assignments[row.cell_key] = row.staff_keys || [];
+    });
+    setStatus('✅ 同期中（リアルタイム接続）');
+    render();
+  } catch(e) {
+    console.error(e);
+    setStatus('⚠️ 接続エラー', 'offline');
+  }
+}
+
+async function upsertCell(ck, staffKeys) {
+  try {
+    if (staffKeys.length === 0) {
+      await sbClient.from('assignments').delete().eq('cell_key', ck);
+    } else {
+      await sbClient.from('assignments').upsert({cell_key: ck, staff_keys: staffKeys}, {onConflict: 'cell_key'});
+    }
+  } catch(e) {
+    console.error('upsert error:', e);
+    setStatus('⚠️ 保存エラー', 'offline');
+  }
+}
+
+function setupRealtime() {
+  sbClient.channel('assignments-channel')
+    .on('postgres_changes', {event:'*', schema:'public', table:'assignments'}, (payload)=>{
+      if (payload.eventType === 'DELETE') {
+        if (payload.old && payload.old.cell_key) {
+          delete assignments[payload.old.cell_key];
+        }
+      } else {
+        const row = payload.new;
+        if (row && row.cell_key) {
+          assignments[row.cell_key] = row.staff_keys || [];
+        }
+      }
+      render();
+    })
+    .subscribe();
 }
 
 function printPDF(){window.print();}
-
-function downloadForShare(){
-  const data=JSON.stringify(assignments);
-  const html=document.documentElement.outerHTML.replace(
-    'let assignments={};',
-    'let assignments='+data+';'
-  );
-  const blob=new Blob([html],{type:'text/html'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='配置表.html';
-  a.click();
-  document.getElementById('share-box').style.display='block';
-}
 
 function renderLegend(){
   document.getElementById('legend').innerHTML=CAT_ORDER.map(cat=>{
@@ -272,12 +324,6 @@ function renderLegend(){
 
 function renderHint(){
   const hint=document.getElementById('hint');
-  if(isReadOnly){
-    hint.style.color='#888';hint.textContent='閲覧モード';
-    document.getElementById('share-btn').style.display='none';
-    document.getElementById('reset-btn').style.display='none';
-    return;
-  }
   if(selected){
     const p=personByKey(selected.key);
     hint.textContent=`「${p?p.sei+p.mei:''}」選択中 → 緑の枠をタップで配置`;
@@ -295,13 +341,11 @@ function buildShochoRow(g,isSelecting){
   const isBlocked=isSelecting&&selected&&categoryOf(selected.key)!=='shokucho';
   let inner=shochoNames.map(key=>{
     const sc=colorOf(key);
-    return `<span class="circle" style="background:${sc.bg};color:${sc.text};margin:1px;" ${isReadOnly?'':'onclick="onChipClick(event,\''+key+'\',\''+shochoKey+'\')"'}>${labelOf(key)}</span>${isReadOnly?'':'<span class="chip-del" onclick="onDel(event,\''+key+'\',\''+shochoKey+'\')">×</span>'}`;
+    return `<span class="circle" style="background:${sc.bg};color:${sc.text};margin:1px;" onclick="onChipClick(event,'${key}','${shochoKey}')">${labelOf(key)}</span><span class="chip-del" onclick="onDel(event,'${key}','${shochoKey}')">×</span>`;
   }).join('');
-  if(!isReadOnly){
-    if(isTarget) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#c8f0dc;color:#1D9E75;border:1.5px dashed #1D9E75;font-size:13px;cursor:pointer;" onclick="onShochoClick(event,'${g}')">+</span>`;
-    else if(!isSelecting) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#ececec;color:#bbb;font-size:13px;">+</span>`;
-    else if(isBlocked) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#f5e0e0;color:#ccc;font-size:13px;">+</span>`;
-  }
+  if(isTarget) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#c8f0dc;color:#1D9E75;border:1.5px dashed #1D9E75;font-size:13px;cursor:pointer;" onclick="onShochoClick(event,'${g}')">+</span>`;
+  else if(!isSelecting) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#ececec;color:#bbb;font-size:13px;">+</span>`;
+  else if(isBlocked) inner+=`<span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#f5e0e0;color:#ccc;font-size:13px;">+</span>`;
   return `<div style="display:flex;align-items:center;gap:2px;padding:2px 0;border-top:0.5px solid #ddd;margin-top:2px;flex-wrap:wrap;"><span style="font-size:8px;color:#888;white-space:nowrap;">職長▶</span>${inner}</div>`;
 }
 
@@ -312,13 +356,13 @@ function buildPoolsHTML(week){
     html+=`<div class="staff-section"><div class="staff-title">${CAT_LABELS[cat]}</div><div class="pool">`;
     persons.forEach(p=>{
       const key=nameKey(p);
-      const isSel=!isReadOnly&&selected&&selected.key===key&&selected.fromCell===null;
+      const isSel=selected&&selected.key===key&&selected.fromCell===null;
       const done=isWeekFullyUsed(key,week);
       const lbl=labelOf(key);
       const fullName=p.mei?p.sei+' '+p.mei:p.sei;
       const unusable=p.unusable||false;
       const pc=colorOf(key);
-      html+=`<div class="pool-person${isSel?' selected':''}${done?' week-done':''}" onclick="${done||isReadOnly?'':("onPoolClick('"+key+"')")}" title="${fullName}">
+      html+=`<div class="pool-person${isSel?' selected':''}${done?' week-done':''}" onclick="${done?'':("onPoolClick('"+key+"')")}" title="${fullName}">
         <span class="pcircle" style="background:${done?'#ccc':pc.bg};color:${done?'#888':pc.text};">${lbl}</span>
         <span style="font-size:9px;color:${done?'#bbb':'#555'};margin-left:2px;display:flex;flex-direction:column;line-height:1.4;${done?'text-decoration:line-through;':''}">${fullName}${unusable&&!done?'<span style="font-size:8px;color:#c00;">(つかえない)</span>':''}</span>
       </div>`;
@@ -332,7 +376,7 @@ function buildPoolsHTML(week){
 function renderTables(){
   const isSelecting=!!selected;
   let html='';
-  weeks.forEach((week,wi)=>{
+  weeks.forEach((week)=>{
     const range=`${week.dates[0].getMonth()+1}/${week.dates[0].getDate()} 〜 ${week.dates[5].getMonth()+1}/${week.dates[5].getDate()}`;
     html+=`<div class="week-label">${week.label}（${range}）</div><div class="table-wrap"><table>`;
 
@@ -341,7 +385,15 @@ function renderTables(){
       week.dates.forEach((dt,di)=>{
         const past=dateKey(dt)<todayKey;
         const isToday=dateKey(dt)===todayKey;
-        r+=`<th style="width:36px;${past?'color:#bbb;background:#f5f5f3;':''}${isToday?'background:#fffbe6;color:#b45309;':''}">${dt.getMonth()+1}/${dt.getDate()}<br>${DAY_LABELS[di]}</th>`;
+        const holiday=isHoliday(dt);
+        const isSat=di===5;
+        let style='width:36px;';
+        if(past) style+='color:#bbb;background:#f5f5f3;';
+        else if(isToday) style+='background:#fffbe6;color:#b45309;font-weight:700;';
+        else if(holiday) style+='color:#dc2626;background:#fef2f2;font-weight:700;';
+        else if(isSat) style+='color:#2563eb;';
+        const title=holiday?` title="${HOLIDAYS[dateKey(dt)]}"`:'';
+        r+=`<th style="${style}"${title}>${dt.getMonth()+1}/${dt.getDate()}<br>${DAY_LABELS[di]}</th>`;
       });
       return r+'</tr>';
     };
@@ -359,13 +411,13 @@ function renderTables(){
         let cellHTML=keys.map(key=>{
           const c=past?{bg:'#ccc',text:'#fff'}:colorOf(key);
           return `<div class="slot"><div class="chip-wrap">
-            <span class="circle" style="background:${c.bg};color:${c.text}" ${past||isReadOnly?'':'onclick="onChipClick(event,\''+key+'\',\''+ck+'\')"'}>${labelOf(key)}</span>
-            ${(!past&&!isReadOnly)?'<span class="chip-del" onclick="onDel(event,\''+key+'\',\''+ck+'\')">×</span>':''}
+            <span class="circle" style="background:${c.bg};color:${c.text}" ${past?'':'onclick="onChipClick(event,\''+key+'\',\''+ck+'\')"'}>${labelOf(key)}</span>
+            ${(!past)?'<span class="chip-del" onclick="onDel(event,\''+key+'\',\''+ck+'\')">×</span>':''}
           </div></div>`;
         }).join('');
         let eCls=past?'slot-empty past':'slot-empty';
         let eOc='';
-        if(!past&&!isReadOnly&&isSelecting){
+        if(!past&&isSelecting){
           eCls=blocked?'slot-empty blocked':'slot-empty target';
           if(!blocked) eOc=`onEmptyClick(event,'${g}','${dk}')`;
         }
@@ -394,76 +446,78 @@ function render(){renderHint();renderTables();}
 function onChipClick(e,key,ck){e.stopPropagation();selected={key,fromCell:ck};render();}
 
 function onPoolClick(key){
-  if(isReadOnly) return;
   selected=(selected&&selected.key===key&&selected.fromCell===null)?null:{key,fromCell:null};
   render();
 }
 
-function onShochoClick(e,g){
+async function onShochoClick(e,g){
   e.stopPropagation();
-  if(!selected||isReadOnly) return;
+  if(!selected) return;
   if(categoryOf(selected.key)!=='shokucho') return;
   const{key,fromCell}=selected;
   const ck='SHOCHO||'+g;
-  if(fromCell) assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+  if(fromCell){
+    assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+    await upsertCell(fromCell, assignments[fromCell]);
+  }
   if(!assignments[ck]) assignments[ck]=[];
   if(!assignments[ck].includes(key)) assignments[ck].push(key);
-  selected=null;save();render();
+  await upsertCell(ck, assignments[ck]);
+  selected=null;render();
 }
 
-function onEmptyClick(e,g,dk){
+async function onEmptyClick(e,g,dk){
   e.stopPropagation();
-  if(!selected||isReadOnly) return;
+  if(!selected) return;
   const{key,fromCell}=selected;
   const ck=cellKey(g,dk);
   if(isUsedOnDate(key,dk,fromCell)){selected=null;render();return;}
-  if(fromCell) assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+  if(fromCell){
+    assignments[fromCell]=(assignments[fromCell]||[]).filter(k=>k!==key);
+    await upsertCell(fromCell, assignments[fromCell]);
+  }
   if(!assignments[ck]) assignments[ck]=[];
   if(!assignments[ck].includes(key)) assignments[ck].push(key);
   assignments[ck]=sortByCategory(assignments[ck]);
+  await upsertCell(ck, assignments[ck]);
+
   // タップ日から土曜まで一括配置
   const week=weeks.find(w=>w.dates.some(d=>dateKey(d)===dk));
   if(week){
     const si=week.dates.findIndex(d=>dateKey(d)===dk);
-    week.dates.slice(si+1).forEach(dt=>{
+    for (const dt of week.dates.slice(si+1)) {
       const wdk=dateKey(dt);
-      if(isUsedOnDate(key,wdk,null)) return;
+      if(isUsedOnDate(key,wdk,null)) continue;
       const wck=cellKey(g,wdk);
       if(!assignments[wck]) assignments[wck]=[];
       if(!assignments[wck].includes(key)) assignments[wck].push(key);
       assignments[wck]=sortByCategory(assignments[wck]);
-    });
+      await upsertCell(wck, assignments[wck]);
+    }
   }
-  selected=null;save();render();
+  selected=null;render();
 }
 
-function onDel(e,key,ck){
+async function onDel(e,key,ck){
   e.stopPropagation();
   assignments[ck]=(assignments[ck]||[]).filter(k=>k!==key);
+  await upsertCell(ck, assignments[ck]);
   if(selected&&selected.key===key&&selected.fromCell===ck) selected=null;
-  save();render();
+  render();
 }
 
-function doReset(){
-  if(isReadOnly) return;
-  if(!confirm('配置をリセットしますか？')) return;
-  assignments={};selected=null;save();render();
+async function doReset(){
+  if(!confirm('全員の配置をリセットしますか？みんなのデータが消えますよ！')) return;
+  try {
+    await sbClient.from('assignments').delete().neq('cell_key', '');
+    assignments={};selected=null;render();
+  } catch(e) { console.error(e); }
 }
 
-const SAVE_KEY='haichi_assignments';
-function save(){
-  if(isReadOnly) return;
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify(assignments));}catch(e){}
-}
-function loadLocal(){
-  if(isReadOnly) return;
-  try{const d=localStorage.getItem(SAVE_KEY);if(d)assignments=JSON.parse(d);}catch(e){}
-}
-
-loadFromURL();
-if(!isReadOnly) loadLocal();
 renderLegend();
 render();
+setupRealtime();
+loadFromSupabase();
 </script>
 </body>
 </html>
